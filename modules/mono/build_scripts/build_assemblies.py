@@ -10,6 +10,12 @@ from dataclasses import dataclass
 
 
 def find_dotnet_cli():
+    configured_dotnet_cli = os.environ.get("GODOT_DOTNET_CLI")
+    if configured_dotnet_cli:
+        if os.path.isfile(configured_dotnet_cli) and os.access(configured_dotnet_cli, os.X_OK):
+            return configured_dotnet_cli
+        raise RuntimeError(f"GODOT_DOTNET_CLI does not point to an executable: {configured_dotnet_cli}")
+
     if os.name == "nt":
         for hint_dir in os.environ["PATH"].split(os.pathsep):
             hint_dir = hint_dir.strip('"')

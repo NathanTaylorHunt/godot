@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -21,6 +22,11 @@ namespace GodotTools.Export
         public override string _GetName() => "C#";
 
         private List<string> _tempFolders = new List<string>();
+
+        private const string SatoriGcOptionName = "dotnet/satori_gc/enabled";
+        private const string SatoriRuntimeDirectoryName = "Satori";
+        private const string SatoriCoreLibFileName = "System.Private.CoreLib.dll";
+        private const string SatoriExportMessageCategory = "Export .NET Satori GC";
 
         private static bool ProjectContainsDotNet()
         {
@@ -49,6 +55,24 @@ namespace GodotTools.Export
                             "option", new Godot.Collections.Dictionary()
                             {
                                 { "name", "dotnet/android_use_linux_bionic" },
+                                { "type", (int)Variant.Type.Bool }
+                            }
+                        },
+                        { "default_value", false }
+                    }
+                );
+            }
+
+            if (platform.GetOsName().Equals(OS.Platforms.Windows, StringComparison.OrdinalIgnoreCase))
+            {
+                exportOptionList.Add
+                (
+                    new Godot.Collections.Dictionary()
+                    {
+                        {
+                            "option", new Godot.Collections.Dictionary()
+                            {
+                                { "name", SatoriGcOptionName },
                                 { "type", (int)Variant.Type.Bool }
                             }
                         },
@@ -306,6 +330,11 @@ namespace GodotTools.Export
                             $"Publish succeeded but project assembly not found at '{assemblyPath}' or '{nativeAotPath}'.");
                     }
 
+                    if (IsSatoriGcEnabled(platform))
+                    {
+                        ApplySatoriRuntimeOverlay(publishOutputDir, runtimeIdentifier);
+                    }
+
                     // For ios simulator builds, skip packaging the build outputs.
                     if (!config.BundleOutputs)
                         continue;
@@ -512,6 +541,117 @@ namespace GodotTools.Export
                 "arm64" => "arm64",
                 _ => throw new ArgumentOutOfRangeException(nameof(arch), arch, "Unexpected architecture")
             };
+        }
+
+        private bool IsSatoriGcEnabled(string platform)
+        {
+            return platform == OS.Platforms.Windows && (bool)GetOption(SatoriGcOptionName);
+        }
+
+        private void ApplySatoriRuntimeOverlay(string publishOutputDir, string runtimeIdentifier)
+        {
+            string runtimeDirectory = Path.Combine(GodotSharpDirs.DataEditorToolsDir,
+                SatoriRuntimeDirectoryName, runtimeIdentifier);
+            string[] runtimeFiles = GetSatoriRuntimeFileNames(runtimeIdentifier);
+
+            ValidateSatoriRuntimeOverlay(publishOutputDir, runtimeDirectory, runtimeIdentifier, runtimeFiles);
+
+            foreach (string fileName in runtimeFiles)
+            {
+                string sourcePath = Path.Combine(runtimeDirectory, fileName);
+                string destinationPath = Path.Combine(publishOutputDir, fileName);
+                System.IO.File.Copy(sourcePath, destinationPath, overwrite: true);
+            }
+
+            string versionPath = Path.Combine(runtimeDirectory, "version.txt");
+            string version = System.IO.File.Exists(versionPath)
+                ? System.IO.File.ReadAllText(versionPath).Trim()
+                : "unknown version";
+
+            GetExportPlatform().AddMessage(EditorExportPlatform.ExportMessageType.Info,
+                SatoriExportMessageCategory,
+                $"Applied Satori GC runtime ({version}) for '{runtimeIdentifier}'.");
+        }
+
+        private static void ValidateSatoriRuntimeOverlay(string publishOutputDir, string runtimeDirectory,
+            string runtimeIdentifier, string[] runtimeFiles)
+        {
+            foreach (string fileName in runtimeFiles)
+            {
+                string sourcePath = Path.Combine(runtimeDirectory, fileName);
+                if (!System.IO.File.Exists(sourcePath))
+                {
+                    throw new FileNotFoundException(
+                        $"Satori GC is enabled, but this Godot build does not include a runtime for '{runtimeIdentifier}'. " +
+                        $"Expected '{fileName}' in '{runtimeDirectory}'. Rebuild the editor with a matching Satori runtime bundle.",
+                        sourcePath);
+                }
+
+                string publishPath = Path.Combine(publishOutputDir, fileName);
+                if (!System.IO.File.Exists(publishPath))
+                {
+                    throw new FileNotFoundException(
+                        $"The published .NET output is missing '{fileName}'. Satori GC requires a self-contained CoreCLR export.",
+                        publishPath);
+                }
+            }
+
+            string publishedCoreLibPath = Path.Combine(publishOutputDir, SatoriCoreLibFileName);
+            string satoriCoreLibPath = Path.Combine(runtimeDirectory, SatoriCoreLibFileName);
+            int publishedMajor = GetRuntimeMajorVersion(publishedCoreLibPath);
+            int satoriMajor = GetRuntimeMajorVersion(satoriCoreLibPath);
+
+            if (publishedMajor == 0 || satoriMajor == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Could not determine the .NET runtime version for the Satori GC export '{runtimeIdentifier}'. " +
+                    "Use a Satori runtime built for the exported project's target framework.");
+            }
+
+            if (publishedMajor != satoriMajor)
+            {
+                throw new InvalidOperationException(
+                    $"Satori GC runtime version mismatch for '{runtimeIdentifier}'. The exported project uses .NET {publishedMajor}, " +
+                    $"but the bundled Satori runtime uses .NET {satoriMajor}.");
+            }
+        }
+
+        private static int GetRuntimeMajorVersion(string assemblyPath)
+        {
+            FileVersionInfo versionInfo = FileVersionInfo.GetVersionInfo(assemblyPath);
+
+            if (versionInfo.ProductMajorPart > 0)
+            {
+                return versionInfo.ProductMajorPart;
+            }
+
+            if (versionInfo.FileMajorPart > 0)
+            {
+                return versionInfo.FileMajorPart;
+            }
+
+            string? productVersion = versionInfo.ProductVersion;
+            if (productVersion != null)
+            {
+                string normalizedVersion = productVersion.Split('+')[0];
+                if (Version.TryParse(normalizedVersion, out Version? version))
+                {
+                    return version.Major;
+                }
+            }
+
+            return 0;
+        }
+
+        private static string[] GetSatoriRuntimeFileNames(string runtimeIdentifier)
+        {
+            if (runtimeIdentifier == "win-x64")
+            {
+                return ["coreclr.dll", "clrjit.dll", SatoriCoreLibFileName];
+            }
+
+            throw new NotSupportedException(
+                $"Satori GC is enabled, but this Godot build does not support runtime identifier '{runtimeIdentifier}'.");
         }
 
         public override void _ExportEnd()
