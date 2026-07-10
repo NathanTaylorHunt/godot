@@ -47,11 +47,19 @@
 #include "core/string/print_string.h"
 #include "core/variant/variant_utility.h"
 
+#include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Physics/Collision/CollideShapeVsShapePerLeaf.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/PhysicsScene.h>
+#include <Jolt/Physics/PhysicsSettings.h>
 
 namespace {
+
+// Dispatching the update's job graph through the worker thread pool costs a few hundred
+// microseconds of wake-ups and waits regardless of how much simulation work exists. With only a
+// handful of active bodies (e.g. manual `space_step` rollback replays over mostly-sleeping
+// scenes) executing the update inline on the calling thread is strictly cheaper.
+constexpr JPH::uint SPACE_INLINE_STEP_MAX_ACTIVE_BODIES = 16;
 
 constexpr double SPACE_DEFAULT_CONTACT_RECYCLE_RADIUS = 0.01;
 constexpr double SPACE_DEFAULT_CONTACT_MAX_SEPARATION = 0.05;
@@ -185,6 +193,27 @@ JoltSpace3D::~JoltSpace3D() {
 		delete layers;
 		layers = nullptr;
 	}
+
+	if (inline_job_system != nullptr) {
+		delete inline_job_system;
+		inline_job_system = nullptr;
+	}
+}
+
+JPH::JobSystem *JoltSpace3D::_step_job_system() {
+	const JPH::uint active_rigid_bodies = physics_system->GetNumActiveBodies(JPH::EBodyType::RigidBody);
+	const JPH::uint active_soft_bodies = physics_system->GetNumActiveBodies(JPH::EBodyType::SoftBody);
+
+	// Soft bodies fan out significant per-body work, so only bypass the threaded job system for purely rigid scenes.
+	if (active_soft_bodies > 0 || active_rigid_bodies > SPACE_INLINE_STEP_MAX_ACTIVE_BODIES) {
+		return job_system;
+	}
+
+	if (inline_job_system == nullptr) {
+		inline_job_system = new JPH::JobSystemSingleThreaded(JPH::cMaxPhysicsJobs);
+	}
+
+	return inline_job_system;
 }
 
 void JoltSpace3D::step(float p_step) {
@@ -193,7 +222,7 @@ void JoltSpace3D::step(float p_step) {
 
 	_pre_step(p_step);
 
-	const JPH::EPhysicsUpdateError update_error = physics_system->Update(p_step, 1, temp_allocator, job_system);
+	const JPH::EPhysicsUpdateError update_error = physics_system->Update(p_step, 1, temp_allocator, _step_job_system());
 
 	if ((update_error & JPH::EPhysicsUpdateError::ManifoldCacheFull) != JPH::EPhysicsUpdateError::None) {
 		WARN_PRINT_ONCE(vformat("Jolt Physics manifold cache exceeded capacity and contacts were ignored. "

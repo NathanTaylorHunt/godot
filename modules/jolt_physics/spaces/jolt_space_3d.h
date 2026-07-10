@@ -68,6 +68,7 @@ class JoltSpace3D {
 	RID rid;
 
 	JPH::JobSystem *job_system = nullptr;
+	JPH::JobSystem *inline_job_system = nullptr;
 	JPH::TempAllocator *temp_allocator = nullptr;
 	JoltLayers *layers = nullptr;
 	JoltContactListener3D *contact_listener = nullptr;
@@ -85,6 +86,8 @@ class JoltSpace3D {
 
 	void _pre_step(float p_step);
 	void _post_step(float p_step);
+
+	JPH::JobSystem *_step_job_system();
 
 public:
 	explicit JoltSpace3D(JPH::JobSystem *p_job_system, JPH::TempAllocator *p_temp_allocator);
