@@ -36,6 +36,19 @@ TEST_FORCE_LINK(test_os)
 
 namespace TestOS {
 
+TEST_CASE("[OS] Dialog suppression state") {
+	OS *os = OS::get_singleton();
+	const bool previous = os->are_dialogs_disabled();
+
+	os->set_dialogs_disabled(false);
+	CHECK_FALSE(os->are_dialogs_disabled());
+
+	os->set_dialogs_disabled(true);
+	CHECK(os->are_dialogs_disabled());
+
+	os->set_dialogs_disabled(previous);
+}
+
 TEST_CASE("[OS] Environment variables") {
 #ifdef WINDOWS_ENABLED
 	CHECK_MESSAGE(

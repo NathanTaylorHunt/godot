@@ -126,6 +126,7 @@ protected:
 	HasServerFeatureCallback has_server_feature_callback = nullptr;
 	bool _separate_thread_render = false;
 	bool _silent_crash_handler = false;
+	bool _dialogs_disabled = false;
 
 	// Functions used by Main to initialize/deinitialize the OS.
 
@@ -293,6 +294,8 @@ public:
 
 	virtual void set_crash_handler_silent() { _silent_crash_handler = true; }
 	virtual bool is_crash_handler_silent() { return _silent_crash_handler; }
+	void set_dialogs_disabled(bool p_disabled) { _dialogs_disabled = p_disabled; }
+	bool are_dialogs_disabled() const { return _dialogs_disabled; }
 
 	virtual String multibyte_to_string(const String &p_encoding, const PackedByteArray &p_array) const;
 	virtual PackedByteArray string_to_multibyte(const String &p_encoding, const String &p_string) const;

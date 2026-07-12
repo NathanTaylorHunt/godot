@@ -1,0 +1,203 @@
+{
+  "project_id": "godot-headless-no-dialogs",
+  "phases": [
+    {
+      "id": "dialog-contract",
+      "title": "Define dialog suppression contract",
+      "description": "Add an engine-level suppression state and a documented --no-dialogs command-line option. Headless mode enables the state automatically, while normal windowed runs retain current modal behavior."
+    },
+    {
+      "id": "platform-alerts",
+      "title": "Route one-button alerts through the contract",
+      "description": "Make Windows and shared OS alert paths honor the suppression state without changing crash-handler behavior or multi-choice dialogs."
+    },
+    {
+      "id": "regression-coverage",
+      "title": "Add bounded headless regression coverage",
+      "description": "Exercise startup failures and runtime alert paths in hidden, time-bounded child processes so a modal dialog cannot hang the test runner."
+    },
+    {
+      "id": "documentation-handoff",
+      "title": "Document and validate the change",
+      "description": "Update command-line/API documentation, run the pinned Godot build, and verify the regression harness and repository cleanliness."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "add-os-dialog-suppression-state",
+      "phase_id": "dialog-contract",
+      "title": "Add OS dialog suppression state",
+      "owner_role": "implementer",
+      "description": "Add a default-off OS-level boolean and accessors in core/os/os.h and core/os/os.cpp representing that one-button modal alerts must not block. The suppressed path must preserve the alert title/message through the existing stderr/logger route. Keep this state separate from disable_crash_handler and do not change DisplayServer multi-choice dialog semantics.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "The suppression state defaults to disabled for normal runs.",
+        "Enabling the state records the same alert text through the existing logging path and returns without waiting for user input.",
+        "Crash-handler enablement and suppression state are independent.",
+        "The state is available to platform OS alert implementations without introducing a second logging mechanism."
+      ],
+      "validation": [
+        "Add or extend the existing OS tests under tests/core/os/test_os.cpp for default state, enablement, and restoration.",
+        "Build the Windows editor with pwsh -NoProfile -File .\\dev.ps1 build."
+      ],
+      "artifacts": [
+        "core/os/os.h",
+        "core/os/os.cpp",
+        "tests/core/os/test_os.cpp"
+      ]
+    },
+    {
+      "id": "add-no-dialogs-cli-option",
+      "phase_id": "dialog-contract",
+      "title": "Add --no-dialogs and headless defaulting",
+      "owner_role": "implementer",
+      "description": "Update main/main.cpp help text and command-line parsing with --no-dialogs. Parse it early enough that startup and Mono initialization failures can use it. Make --headless set both the existing headless display/audio drivers and the OS dialog suppression state. Preserve --disable-crash-handler as a separate opt-in flag, and do not forward engine flags as project user arguments.",
+      "depends_on": [
+        "add-os-dialog-suppression-state"
+      ],
+      "acceptance_criteria": [
+        "The built executable lists --no-dialogs in --help.",
+        "--headless suppresses one-button alerts even when --no-dialogs is omitted.",
+        "--no-dialogs independently suppresses one-button alerts when used without --headless.",
+        "Existing --headless display/audio behavior and --disable-crash-handler behavior remain unchanged."
+      ],
+      "validation": [
+        "Run the pinned console editor with --help and assert that --no-dialogs is present.",
+        "Run a bounded startup-failure probe with --headless and without an explicit --no-dialogs flag; assert it exits instead of waiting for a dialog and writes the failure text to its log."
+      ],
+      "inputs": {
+        "command_line_entrypoint": "main/main.cpp",
+        "existing_headless_parser": "main/main.cpp:1500",
+        "existing_crash_handler_parser": "main/main.cpp:1979"
+      },
+      "artifacts": [
+        "main/main.cpp"
+      ]
+    },
+    {
+      "id": "route-windows-ok-alerts",
+      "phase_id": "platform-alerts",
+      "title": "Suppress Windows OS alerts when enabled",
+      "owner_role": "implementer",
+      "description": "Update platform/windows/os_windows.cpp so OS_Windows::alert checks the shared suppression state before calling MessageBoxW. When suppressed, emit the title and message to the existing logger/stderr path and return; when not suppressed, retain the current MessageBoxW behavior. Audit platform/windows/display_server_windows.cpp for runtime one-button MessageBoxW calls reachable after command-line parsing and route them through the same policy where feasible. Leave the pre-entry CPU SSE4.2 compatibility dialog out of scope and document why a runtime flag cannot affect it.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "A suppressed Windows OS alert never calls a blocking MessageBoxW.",
+        "The unsuppressed Windows alert path remains modal and behavior-compatible.",
+        "Runtime one-button platform alerts do not bypass the policy after command-line parsing.",
+        "The implementation does not disable crash reporting or alter non-OK-only dialogs."
+      ],
+      "validation": [
+        "Use a source audit to enumerate remaining MessageBoxW and OS::alert call sites and classify each as covered, unreachable in headless mode, or pre-command-line exception.",
+        "Run a Windows process probe for both suppressed and unsuppressed alert policy without allowing an interactive test dialog to remain alive."
+      ],
+      "artifacts": [
+        "platform/windows/os_windows.cpp",
+        "platform/windows/os_windows.h",
+        "platform/windows/display_server_windows.cpp",
+        "platform/windows/cpu_feature_validation.c"
+      ]
+    },
+    {
+      "id": "cover-mono-and-startup-alerts",
+      "phase_id": "platform-alerts",
+      "title": "Cover startup and Mono alert callers",
+      "owner_role": "implementer",
+      "description": "Audit the existing OS::alert callers in main/main.cpp, modules/mono/mono_gd/gd_mono.cpp, and core/core_bind.cpp. Confirm that missing project data, missing main scene, invalid MainLoop/script startup, missing .NET runtime/assemblies, and script-level OS.alert calls all flow through the shared suppression policy. Add only the minimal caller changes needed if any bypass the policy; preserve the original failure return codes and error messages.",
+      "depends_on": [
+        "route-windows-ok-alerts"
+      ],
+      "acceptance_criteria": [
+        "All identified runtime/startup one-button alert callers are non-blocking under headless mode.",
+        "Each caller still reports a diagnostic and returns its existing failure status.",
+        "No caller silently converts a failure into success."
+      ],
+      "validation": [
+        "Use rg to audit OS::get_singleton()->alert and core-bind alert forwarding after the implementation.",
+        "Exercise at least one main.cpp failure and one Mono/runtime failure through the integration harness."
+      ],
+      "artifacts": [
+        "main/main.cpp",
+        "modules/mono/mono_gd/gd_mono.cpp",
+        "core/core_bind.cpp"
+      ]
+    },
+    {
+      "id": "add-headless-no-dialogs-harness",
+      "phase_id": "regression-coverage",
+      "title": "Add bounded command-line regression harness",
+      "owner_role": "implementer",
+      "description": "Add a Windows PowerShell integration harness under tests/command_line that resolves the pinned console editor, launches each case with a hidden window, redirects --log-file to a temporary ignored artifact directory, enforces a short timeout, and kills timed-out children. Cover: --headless --help; a missing/invalid project startup failure using --headless without an explicit --no-dialogs flag; the same failure using explicit --no-dialogs; a deterministic script-level OS.alert or runtime alert fixture; and a successful headless invocation proving normal runs still complete. Assert nonzero failure exit codes where expected and require the diagnostic text in the log.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "Every expected failure case exits within the timeout instead of waiting for an OK dialog.",
+        "Headless mode suppresses dialogs without an explicit extra flag.",
+        "Explicit --no-dialogs works independently of --headless.",
+        "Failure cases retain nonzero exit codes and diagnostic log content.",
+        "The harness leaves no child process running after success, failure, or timeout."
+      ],
+      "validation": [
+        "Run pwsh -NoProfile -File .\\tests\\command_line\\test_no_dialogs.ps1 against bin\\godot.windows.editor.dev.x86_64.mono.console.exe.",
+        "Run the harness once before and once after enabling the implementation in a controlled build to demonstrate the old modal path is detected by timeout and the new path exits normally.",
+        "Inspect generated logs for the expected alert text and absence of an interactive dependency."
+      ],
+      "inputs": {
+        "pinned_editor": "bin/godot.windows.editor.dev.x86_64.mono.console.exe",
+        "existing_alert_callers": [
+          "main/main.cpp:2127",
+          "main/main.cpp:4336",
+          "modules/mono/mono_gd/gd_mono.cpp:446",
+          "core/core_bind.cpp:344"
+        ]
+      },
+      "artifacts": [
+        "tests/command_line/test_no_dialogs.ps1",
+        "tests/command_line/fixtures/no_dialogs/project.godot",
+        "tests/command_line/fixtures/no_dialogs/main.gd"
+      ]
+    },
+    {
+      "id": "document-dialog-contract",
+      "phase_id": "documentation-handoff",
+      "title": "Document flag and OS.alert behavior",
+      "owner_role": "implementer",
+      "description": "Document --no-dialogs in the command-line help and update doc/classes/OS.xml for alert behavior: normal execution remains modal, while the flag and headless mode route one-button alerts to logs without blocking. Explicitly distinguish this from --disable-crash-handler, multi-choice dialogs, external child-process dialogs, and pre-command-line CPU compatibility dialogs.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "Users can discover the flag from --help and the OS.alert API documentation.",
+        "Documentation states that suppressed alerts remain diagnostics and do not change failure status.",
+        "The documented non-goals match the implemented behavior."
+      ],
+      "validation": [
+        "Run the repository XML/documentation validation used by the Godot checkout, if available.",
+        "Compare documentation examples with the command-line integration harness cases."
+      ],
+      "artifacts": [
+        "doc/classes/OS.xml",
+        "main/main.cpp"
+      ]
+    },
+    {
+      "id": "build-and-review-change",
+      "phase_id": "documentation-handoff",
+      "title": "Build and review the complete change",
+      "owner_role": "coordinator",
+      "description": "Run the repository doctor and pinned build, execute the command-line regression harness, review the diff for accidental changes to crash handling or normal windowed behavior, and report any remaining pre-entry or external-dialog limitations.",
+      "depends_on": [
+        "document-dialog-contract"
+      ],
+      "acceptance_criteria": [
+        "The pinned Windows editor build succeeds.",
+        "The bounded headless regression harness passes.",
+        "The final diff is limited to the dialog policy, its tests, and documentation.",
+        "Remaining unsupported dialog sources are explicitly listed."
+      ],
+      "validation": [
+        "Run pwsh -NoProfile -File .\\dev.ps1 doctor from repos/godot.",
+        "Run pwsh -NoProfile -File .\\dev.ps1 build from repos/godot.",
+        "Run pwsh -NoProfile -File .\\tests\\command_line\\test_no_dialogs.ps1.",
+        "Run git diff --check and inspect git status in repos/godot."
+      ]
+    }
+  ]
+}

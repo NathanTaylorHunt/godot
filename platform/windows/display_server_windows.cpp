@@ -3709,6 +3709,21 @@ static HRESULT CALLBACK win32_task_dialog_callback(HWND hwnd, UINT msg, WPARAM w
 Error DisplayServerWindows::dialog_show(String p_title, String p_description, Vector<String> p_buttons, const Callable &p_callback) {
 	_THREAD_SAFE_METHOD_
 
+	if (OS::get_singleton()->are_dialogs_disabled() && p_buttons.size() == 1) {
+		OS::get_singleton()->alert(p_description, p_title);
+		if (p_callback.is_valid()) {
+			Variant button = 0;
+			const Variant *args[1] = { &button };
+			Variant ret;
+			Callable::CallError ce;
+			p_callback.callp(args, 1, ret, ce);
+			if (ce.error != Callable::CallError::CALL_OK) {
+				ERR_PRINT(vformat("Failed to execute dialog callback: %s.", Variant::get_callable_error_text(p_callback, args, 1, ce)));
+			}
+		}
+		return OK;
+	}
+
 	TASKDIALOGCONFIG config;
 	ZeroMemory(&config, sizeof(TASKDIALOGCONFIG));
 	config.cbSize = sizeof(TASKDIALOGCONFIG);
@@ -7098,7 +7113,7 @@ Error DisplayServerWindows::_create_window(DisplayServerEnums::WindowID p_window
 				// processed in the window proc
 				reinterpret_cast<void *>(&wd));
 		if (!wd.hWnd) {
-			MessageBoxW(nullptr, L"Window Creation Error.", L"ERROR", MB_OK | MB_ICONEXCLAMATION);
+			OS::get_singleton()->alert("Window Creation Error.", "ERROR");
 			windows.erase(id);
 			ERR_FAIL_V_MSG(ERR_CANT_CREATE, "Failed to create Windows OS window.");
 		}

@@ -245,6 +245,11 @@ BOOL WINAPI HandlerRoutine(_In_ DWORD dwCtrlType) {
 }
 
 void OS_Windows::alert(const String &p_alert, const String &p_title) {
+	if (are_dialogs_disabled()) {
+		OS::alert(p_alert, p_title);
+		return;
+	}
+
 	MessageBoxW(nullptr, (LPCWSTR)(p_alert.utf16().get_data()), (LPCWSTR)(p_title.utf16().get_data()), MB_OK | MB_ICONEXCLAMATION | MB_TASKMODAL);
 }
 

@@ -151,6 +151,11 @@ void OS::printerr(const char *p_format, ...) {
 }
 
 void OS::alert(const String &p_alert, const String &p_title) {
+	if (are_dialogs_disabled()) {
+		printerr("%s: %s\n", p_title.utf8().get_data(), p_alert.utf8().get_data());
+		return;
+	}
+
 	fprintf(stderr, "%s: %s\n", p_title.utf8().get_data(), p_alert.utf8().get_data());
 }
 

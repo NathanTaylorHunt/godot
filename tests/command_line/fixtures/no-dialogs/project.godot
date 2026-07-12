@@ -1,0 +1,6 @@
+; Engine command-line regression fixture.
+config_version=5
+
+[application]
+
+config/name="Headless No Dialogs Fixture"
