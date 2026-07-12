@@ -255,6 +255,10 @@ DWORD CrashHandlerException(EXCEPTION_POINTERS *ep) {
 		}
 	}
 
+	if (OS::get_singleton()->are_dialogs_disabled()) {
+		ExitProcess(1);
+	}
+
 	// Pass the exception to the OS
 	return EXCEPTION_CONTINUE_SEARCH;
 }

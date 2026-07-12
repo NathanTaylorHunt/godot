@@ -100,6 +100,20 @@ Invoke-GodotCase `
     -RequiredText 'headless alert fixture'
 
 Invoke-GodotCase `
+    -Name 'headless-crash' `
+    -Arguments @('--headless', '--path', (Join-Path $FixtureRoot 'no-dialogs'), '--script', 'res://crash.gd') `
+    -RequiredText 'Program crashed'
+
+Invoke-GodotCase `
+    -Name 'explicit-no-dialogs-crash' `
+    -Arguments @('--no-dialogs', '--path', (Join-Path $FixtureRoot 'no-dialogs'), '--script', 'res://crash.gd') `
+    -RequiredText 'Program crashed'
+
+Invoke-GodotCase `
+    -Name 'headless-crash-handler-disabled' `
+    -Arguments @('--headless', '--disable-crash-handler', '--path', (Join-Path $FixtureRoot 'no-dialogs'), '--script', 'res://crash.gd')
+
+Invoke-GodotCase `
     -Name 'successful-headless-run' `
     -Arguments @('--headless', '--path', (Join-Path $FixtureRoot 'clean'), '--script', 'res://main.gd') `
     -ExpectedExitCode 0 `

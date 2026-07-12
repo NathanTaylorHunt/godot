@@ -66,6 +66,26 @@ char *wc_to_utf8(const wchar_t *wc) {
 }
 
 int widechar_main(int argc, wchar_t **argv) {
+	// Headless and explicitly noninteractive runs must not hand native crashes
+	// to Windows Error Reporting, which would open a modal Application Error box.
+	bool noninteractive = false;
+	for (int i = 0; i < argc; i++) {
+		if (wcscmp(argv[i], L"--") == 0) {
+			break;
+		}
+		if (wcscmp(argv[i], L"--headless") == 0 || wcscmp(argv[i], L"--no-dialogs") == 0) {
+			SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX | SEM_NOALIGNMENTFAULTEXCEPT);
+			noninteractive = true;
+			break;
+		}
+	}
+	if (noninteractive) {
+		SetUnhandledExceptionFilter([](EXCEPTION_POINTERS *) -> LONG {
+			ExitProcess(1);
+			return EXCEPTION_EXECUTE_HANDLER;
+		});
+	}
+
 	godot_init_profiler();
 
 	OS_Windows os(nullptr);

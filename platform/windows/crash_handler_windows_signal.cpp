@@ -294,6 +294,10 @@ extern void CrashHandlerException(int signal) {
 			print_error("================================================================");
 		}
 	}
+
+	if (OS::get_singleton()->are_dialogs_disabled()) {
+		std::_Exit(1);
+	}
 }
 #endif
 
