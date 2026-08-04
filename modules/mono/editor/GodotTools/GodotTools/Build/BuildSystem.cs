@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Godot;
 using GodotTools.BuildLogger;
@@ -17,6 +18,81 @@ namespace GodotTools.Build
 {
     public static class BuildSystem
     {
+        private const int PumpIntervalMsec = 100;
+        private const int KillWaitTimeoutMsec = 5000;
+        private const int OutputDrainTimeoutMsec = 3000;
+
+        private sealed class OutputEofTracker
+        {
+            public volatile bool StdOutDone;
+            public volatile bool StdErrDone;
+        }
+
+        private static Action<string?> WrapEofHandler(Action<string?>? handler, Action onEof)
+        {
+            return data =>
+            {
+                if (data == null)
+                    onEof();
+                handler?.Invoke(data);
+            };
+        }
+
+        private static void TryCancelOutputReads(Process process)
+        {
+            try
+            {
+                process.CancelOutputRead();
+                process.CancelErrorRead();
+            }
+            catch (InvalidOperationException)
+            {
+                // The process was not reading asynchronously.
+            }
+        }
+
+        private static int WaitForExitPumping(Process process, Func<bool>? pumpProgress, OutputEofTracker eof)
+        {
+            while (!process.WaitForExit(PumpIntervalMsec))
+            {
+                if (pumpProgress == null || !pumpProgress())
+                    continue;
+
+                // Cancel requested from the progress dialog.
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process exited before it could be killed.
+                }
+
+                if (!process.WaitForExit(KillWaitTimeoutMsec))
+                {
+                    TryCancelOutputReads(process);
+                    return -1;
+                }
+
+                break;
+            }
+
+            // MSBuild can leave long-lived child processes behind (Roslyn compiler server,
+            // MSBuild worker nodes) which inherit the redirected output pipes and keep them
+            // open after `dotnet build` has exited. A parameterless WaitForExit would block
+            // on those pipes reaching EOF, so wait for the output to drain with a deadline.
+            var drainTimer = Stopwatch.StartNew();
+            while (!(eof.StdOutDone && eof.StdErrDone) && drainTimer.ElapsedMilliseconds < OutputDrainTimeoutMsec)
+            {
+                pumpProgress?.Invoke();
+                Thread.Sleep(PumpIntervalMsec);
+            }
+
+            TryCancelOutputReads(process);
+
+            return process.ExitCode;
+        }
+
         private static Process LaunchBuild(BuildInfo buildInfo, Action<string?>? stdOutHandler,
             Action<string?>? stdErrHandler)
         {
@@ -67,13 +143,16 @@ namespace GodotTools.Build
             return process;
         }
 
-        public static int Build(BuildInfo buildInfo, Action<string?>? stdOutHandler, Action<string?>? stdErrHandler)
+        public static int Build(BuildInfo buildInfo, Action<string?>? stdOutHandler, Action<string?>? stdErrHandler,
+            Func<bool>? pumpProgress = null)
         {
-            using (var process = LaunchBuild(buildInfo, stdOutHandler, stdErrHandler))
-            {
-                process.WaitForExit();
+            var eof = new OutputEofTracker();
 
-                return process.ExitCode;
+            using (var process = LaunchBuild(buildInfo,
+                WrapEofHandler(stdOutHandler, () => eof.StdOutDone = true),
+                WrapEofHandler(stdErrHandler, () => eof.StdErrDone = true)))
+            {
+                return WaitForExitPumping(process, pumpProgress, eof);
             }
         }
 
@@ -137,13 +216,16 @@ namespace GodotTools.Build
             return process;
         }
 
-        public static int Publish(BuildInfo buildInfo, Action<string?>? stdOutHandler, Action<string?>? stdErrHandler)
+        public static int Publish(BuildInfo buildInfo, Action<string?>? stdOutHandler, Action<string?>? stdErrHandler,
+            Func<bool>? pumpProgress = null)
         {
-            using (var process = LaunchPublish(buildInfo, stdOutHandler, stdErrHandler))
-            {
-                process.WaitForExit();
+            var eof = new OutputEofTracker();
 
-                return process.ExitCode;
+            using (var process = LaunchPublish(buildInfo,
+                WrapEofHandler(stdOutHandler, () => eof.StdOutDone = true),
+                WrapEofHandler(stdErrHandler, () => eof.StdErrDone = true)))
+            {
+                return WaitForExitPumping(process, pumpProgress, eof);
             }
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading.Tasks;
@@ -71,7 +72,7 @@ namespace GodotTools.Build
                 GD.Print(text);
         }
 
-        private static bool Build(BuildInfo buildInfo)
+        private static bool Build(BuildInfo buildInfo, Func<bool>? pumpProgress = null)
         {
             if (_buildInProgress != null)
                 throw new InvalidOperationException("A build is already in progress.");
@@ -97,7 +98,7 @@ namespace GodotTools.Build
 
                 try
                 {
-                    int exitCode = BuildSystem.Build(buildInfo, StdOutputReceived, StdErrorReceived);
+                    int exitCode = BuildSystem.Build(buildInfo, StdOutputReceived, StdErrorReceived, pumpProgress);
 
                     if (exitCode != 0)
                         PrintVerbose($"MSBuild exited with code: {exitCode}. Log file: {GetLogFilePath(buildInfo)}");
@@ -166,7 +167,7 @@ namespace GodotTools.Build
             }
         }
 
-        private static bool Publish(BuildInfo buildInfo)
+        private static bool Publish(BuildInfo buildInfo, Func<bool>? pumpProgress = null)
         {
             if (_buildInProgress != null)
                 throw new InvalidOperationException("A build is already in progress.");
@@ -192,7 +193,7 @@ namespace GodotTools.Build
 
                 try
                 {
-                    int exitCode = BuildSystem.Publish(buildInfo, StdOutputReceived, StdErrorReceived);
+                    int exitCode = BuildSystem.Publish(buildInfo, StdOutputReceived, StdErrorReceived, pumpProgress);
 
                     if (exitCode != 0)
                         PrintVerbose(
@@ -216,19 +217,39 @@ namespace GodotTools.Build
             }
         }
 
+        private static bool RunWithProgress(BuildInfo buildInfo, Func<BuildInfo, Func<bool>?, bool> action,
+            string task, string title, string stateLabel, out bool canceled)
+        {
+            bool success;
+            bool cancelRequested = false;
+            using (var pr = new EditorProgress(task, title, 1, canCancel: true))
+            {
+                var elapsed = Stopwatch.StartNew();
+                pr.Step(stateLabel, 0);
+                // The progress pump keeps the editor main loop iterating while the dotnet
+                // process runs, so the window stays responsive, build output streams into
+                // the MSBuild panel, and the Cancel button works.
+                success = action(buildInfo, () =>
+                {
+                    if (pr.TryStep($"{stateLabel} ({elapsed.Elapsed.TotalSeconds:0} s)", 0, forceRefresh: false))
+                        cancelRequested = true;
+                    return cancelRequested;
+                });
+            }
+
+            canceled = cancelRequested;
+            return success;
+        }
+
         private static bool BuildProjectBlocking(BuildInfo buildInfo)
         {
             if (!File.Exists(buildInfo.Project))
                 return true; // No project to build.
 
-            bool success;
-            using (var pr = new EditorProgress("dotnet_build_project", "Building .NET project...", 1))
-            {
-                pr.Step("Building project", 0);
-                success = Build(buildInfo);
-            }
+            bool success = RunWithProgress(buildInfo, static (info, pump) => Build(info, pump),
+                "dotnet_build_project", "Building .NET project...", "Building project", out bool canceled);
 
-            if (!success)
+            if (!success && !canceled)
             {
                 ShowBuildErrorDialog("Failed to build project. Check MSBuild panel for details.");
             }
@@ -241,14 +262,10 @@ namespace GodotTools.Build
             if (!File.Exists(buildInfo.Project))
                 return true; // No project to clean.
 
-            bool success;
-            using (var pr = new EditorProgress("dotnet_clean_project", "Cleaning .NET project...", 1))
-            {
-                pr.Step("Cleaning project", 0);
-                success = Build(buildInfo);
-            }
+            bool success = RunWithProgress(buildInfo, static (info, pump) => Build(info, pump),
+                "dotnet_clean_project", "Cleaning .NET project...", "Cleaning project", out bool canceled);
 
-            if (!success)
+            if (!success && !canceled)
             {
                 ShowBuildErrorDialog("Failed to clean project");
             }
@@ -258,14 +275,8 @@ namespace GodotTools.Build
 
         private static bool PublishProjectBlocking(BuildInfo buildInfo)
         {
-            bool success;
-            using (var pr = new EditorProgress("dotnet_publish_project", "Publishing .NET project...", 1))
-            {
-                pr.Step("Running dotnet publish", 0);
-                success = Publish(buildInfo);
-            }
-
-            return success;
+            return RunWithProgress(buildInfo, static (info, pump) => Publish(info, pump),
+                "dotnet_publish_project", "Publishing .NET project...", "Running dotnet publish", out _);
         }
 
         private static BuildInfo CreateBuildInfo(
