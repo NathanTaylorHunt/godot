@@ -14,6 +14,8 @@ namespace GodotTools.Build
     {
         private static BuildInfo? _buildInProgress;
 
+        public static bool IsBuildInProgress => _buildInProgress != null;
+
         public const string MsBuildIssuesFileName = "msbuild_issues.csv";
         private const string MsBuildLogFileName = "msbuild_log.txt";
 

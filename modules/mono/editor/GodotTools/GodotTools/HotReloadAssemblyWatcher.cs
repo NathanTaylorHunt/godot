@@ -16,18 +16,21 @@ namespace GodotTools
             if (what == Node.NotificationWMWindowFocusIn)
             {
                 RestartTimer();
-
-                if (Internal.IsAssembliesReloadingNeeded())
-                {
-                    BuildManager.UpdateLastValidBuildDateTime();
-                    Internal.ReloadAssemblies(softReload: false);
-                }
+                TryReloadAssemblies();
             }
         }
 
         private void TimerTimeout()
         {
-            if (Internal.IsAssembliesReloadingNeeded())
+            TryReloadAssemblies();
+        }
+
+        private static void TryReloadAssemblies()
+        {
+            // A blocking build pumps the editor main loop to keep its progress dialog
+            // responsive. Defer hot reload until the build returns so the watcher cannot
+            // reload the project assembly re-entrantly from that nested main-loop pass.
+            if (!BuildManager.IsBuildInProgress && Internal.IsAssembliesReloadingNeeded())
             {
                 BuildManager.UpdateLastValidBuildDateTime();
                 Internal.ReloadAssemblies(softReload: false);
