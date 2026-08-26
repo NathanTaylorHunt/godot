@@ -1,7 +1,7 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('doctor', 'build', 'build-templates')]
+    [ValidateSet('doctor', 'build', 'build-templates', 'stage-satori')]
     [string]$Command = 'doctor'
 )
 
@@ -143,14 +143,14 @@ function Stage-SatoriPlayRuntime {
         return
     }
     $framework = $frameworks[0]
-    $fxrs = Get-ChildItem -LiteralPath (Join-Path $dotnetRoot 'hostxr') -Directory | Sort-Object { [version]$_.Name } -Descending
+    $fxrs = Get-ChildItem -LiteralPath (Join-Path $dotnetRoot 'host\fxr') -Directory | Sort-Object { [version]$_.Name } -Descending
     $fxr = $fxrs[0]
 
     $destination = Join-Path $EngineRoot 'bin\GodotSharp\Tools\SatoriPlay\win-x64\dotnet'
     if (Test-Path -LiteralPath $destination) {
         Remove-Item -LiteralPath $destination -Recurse -Force
     }
-    $fxrDestination = Join-Path $destination ("hostxr\" + $fxr.Name)
+    $fxrDestination = Join-Path $destination ("host\fxr\" + $fxr.Name)
     $fwDestination = Join-Path $destination ("shared\Microsoft.NETCore.App\" + $framework.Name)
     New-Item -ItemType Directory -Path $fxrDestination -Force | Out-Null
     Copy-Item -Path (Join-Path $fxr.FullName '*') -Destination $fxrDestination -Recurse -Force
@@ -218,4 +218,5 @@ switch ($Command) {
     'doctor' { Invoke-Doctor }
     'build' { Invoke-Build }
     'build-templates' { Invoke-TemplateBuild }
+    'stage-satori' { Assert-SatoriRuntime; Stage-SatoriRuntime; Stage-SatoriPlayRuntime }
 }
