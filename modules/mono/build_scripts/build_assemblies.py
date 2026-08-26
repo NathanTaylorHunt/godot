@@ -231,7 +231,17 @@ def build_godot_api(msbuild_tool, module_dir, output_dir, push_nupkgs_local, pre
 
         core_src_dir = os.path.abspath(os.path.join(sln, os.pardir, "GodotSharp", "bin", build_config))
         editor_src_dir = os.path.abspath(os.path.join(sln, os.pardir, "GodotSharpEditor", "bin", build_config))
-        plugins_src_dir = os.path.abspath(os.path.join(sln, os.pardir, "GodotPlugins", "bin", build_config, "net8.0"))
+        # GodotPlugins is the one project here that keeps the target framework in its output
+        # path, so read the framework out of its csproj instead of hard-coding it. A stale
+        # literal silently copies the previous framework's leftover build and the whole script
+        # still exits 0.
+        plugins_project_dir = os.path.abspath(os.path.join(sln, os.pardir, "GodotPlugins"))
+        plugins_tfm = read_target_framework(os.path.join(plugins_project_dir, "GodotPlugins.csproj"))
+        plugins_src_dir = os.path.join(plugins_project_dir, "bin", build_config, plugins_tfm)
+        if not os.path.isdir(plugins_src_dir):
+            raise RuntimeError(
+                f"GodotPlugins output for '{plugins_tfm}' was not found at '{plugins_src_dir}'."
+            )
 
         if not os.path.isdir(editor_api_dir):
             assert not os.path.isfile(editor_api_dir)
@@ -361,6 +371,17 @@ def generate_sdk_package_versions():
 
     with open(os.path.join(generators_dir, "Common.Constants.cs"), "w", encoding="utf-8", newline="\n") as f:
         f.write(constants)
+
+
+def read_target_framework(csproj_path):
+    """Read the single <TargetFramework> a project declares."""
+    import re
+
+    with open(csproj_path, "r", encoding="utf-8") as handle:
+        match = re.search(r"<TargetFramework>\s*([^<\s]+)\s*</TargetFramework>", handle.read())
+    if match is None:
+        raise RuntimeError(f"No <TargetFramework> found in '{csproj_path}'.")
+    return match.group(1)
 
 
 def build_all(

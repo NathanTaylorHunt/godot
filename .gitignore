@@ -396,3 +396,7 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+# The engine ships its own NuGet source list so the managed build does not
+# inherit whatever feeds a build machine has configured (see nuget.config).
+!nuget.config

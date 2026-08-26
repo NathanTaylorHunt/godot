@@ -12,8 +12,8 @@ $EngineRoot = $PSScriptRoot
 $WorkspaceRoot = (Resolve-Path (Join-Path $EngineRoot '..\..')).Path
 $DotNetInstallDir = Join-Path $HOME '.dotnet'
 $DotNetCacheRoot = Join-Path $WorkspaceRoot '.cache\dotnet'
-$SatoriVersion = '2025.807.0'
-$SatoriArchiveHash = 'ced12fa00b5142d9e4412444512f3245eba77fc80eac9003b3b369da110f7b83'
+$SatoriVersion = '2026.824.0'
+$SatoriArchiveHash = '8e5c59d363c58330a81fec8131aa0440a9363a4449019225578061fbed89eb87'
 $SatoriCacheRoot = Join-Path $WorkspaceRoot ".cache\satori\$SatoriVersion\win-x64"
 $SatoriArchive = Join-Path $SatoriCacheRoot 'win-x64.zip'
 $SatoriRuntimeSource = Join-Path $SatoriCacheRoot 'contents\win-x64'
@@ -62,12 +62,12 @@ function Assert-SatoriRuntime {
 function Assert-DotNetSdk {
     $dotnetExecutable = Join-Path $DotNetInstallDir 'dotnet.exe'
     if (-not (Test-Path -LiteralPath $dotnetExecutable -PathType Leaf)) {
-        throw "Required .NET 8 SDK host was not found at '$dotnetExecutable'."
+        throw "Required .NET 10 SDK host was not found at '$dotnetExecutable'."
     }
 
     $version = & $dotnetExecutable --version
-    if ([version]$version -lt [version]'8.0.0' -or -not $version.StartsWith('8.')) {
-        throw "Godot 4.7 requires a .NET 8 SDK; found '$version' at '$dotnetExecutable'."
+    if ([version]$version -lt [version]'10.0.0' -or -not $version.StartsWith('10.')) {
+        throw "This fork targets net10.0; a .NET 10 SDK is required. Found '$version' at '$dotnetExecutable'."
     }
 
     $env:PATH = "$DotNetInstallDir;$env:PATH"
@@ -132,14 +132,14 @@ function Stage-SatoriRuntime {
 
 function Stage-SatoriPlayRuntime {
     # A private dotnet root for play-from-editor (see GDMono::push_play_runtime_environment):
-    # the newest installed 8.0.x shared framework and hostfxr, with the Satori overlay applied
+    # the newest installed 10.0.x shared framework and hostfxr, with the Satori overlay applied
     # to the framework directory, so the editor's play child can run Satori while the editor
     # itself keeps the stock runtime. Exports are unaffected; they use the Satori\ overlay.
     $dotnetRoot = Join-Path $env:ProgramFiles 'dotnet'
     $frameworks = Get-ChildItem -LiteralPath (Join-Path $dotnetRoot 'shared\Microsoft.NETCore.App') -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like '8.0.*' } | Sort-Object { [version]$_.Name } -Descending
+        Where-Object { $_.Name -like '10.0.*' } | Sort-Object { [version]$_.Name } -Descending
     if (-not $frameworks) {
-        Write-Host "[WARN] No installed Microsoft.NETCore.App 8.0.x under '$dotnetRoot'; skipping Satori play runtime staging."
+        Write-Host "[WARN] No installed Microsoft.NETCore.App 10.0.x under '$dotnetRoot'; skipping Satori play runtime staging."
         return
     }
     $framework = $frameworks[0]

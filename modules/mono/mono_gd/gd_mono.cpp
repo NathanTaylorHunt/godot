@@ -670,7 +670,7 @@ void GDMono::push_play_runtime_environment() {
 		}
 	}
 	if (pin || satori) {
-		// Stay on the same major as the framework in GodotPlugins.runtimeconfig.json (net8.0)
+		// Stay on the same major as the framework in GodotPlugins.runtimeconfig.json (net10.0)
 		// instead of rolling forward to whatever newest major is installed, so editor play
 		// runs the runtime the self-contained export bundles.
 		os->set_environment("DOTNET_ROLL_FORWARD", "LatestPatch");
