@@ -16,7 +16,7 @@ Update channel: only ppy `8.0-based` builds while the project targets `net8.0`. 
 date-stamped builds (`2026.824.0` onward) are .NET-10-based and VSadov/Satori#81 reports worse
 stop-the-world pauses there than on .NET 8; do not take them without a measured comparison.
 
-The checkbox is disabled by default. Exporting with it enabled fails clearly if the editor does not contain the matching runtime, if the target is not `win-x64`, or if the exported project targets a different .NET major version.
+The checkbox is disabled by default in the engine; Dorifto enables it on every export preset and sets `dotnet/runtime/satori_play_from_editor=true` (decision 13 in the project's `docs/notes/Garbage Collection Strategy.md`, 2026-08-26). Exporting with it enabled fails clearly if the editor does not contain the matching runtime, if the target is not `win-x64`, or if the exported project targets a different .NET major version.
 
 Do not add automatic Satori downloads to the exporter. Runtime acquisition belongs to the deterministic build process, not project export.
 
