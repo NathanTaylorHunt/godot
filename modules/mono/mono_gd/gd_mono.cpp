@@ -610,6 +610,85 @@ godot_plugins_initialize_fn initialize_coreclr_and_godot_plugins(bool &r_runtime
 
 } // namespace
 
+#ifdef TOOLS_ENABLED
+namespace {
+struct PlayRuntimeEnvBackup {
+	bool active = false;
+	bool had_root = false;
+	bool had_root_x64 = false;
+	bool had_roll_forward = false;
+	String root;
+	String root_x64;
+	String roll_forward;
+};
+PlayRuntimeEnvBackup play_runtime_env_backup;
+
+void backup_env(const String &p_name, bool &r_had, String &r_value) {
+	OS *os = OS::get_singleton();
+	r_had = os->has_environment(p_name);
+	r_value = r_had ? os->get_environment(p_name) : String();
+}
+
+void restore_env(const String &p_name, bool p_had, const String &p_value) {
+	OS *os = OS::get_singleton();
+	if (p_had) {
+		os->set_environment(p_name, p_value);
+	} else {
+		os->unset_environment(p_name);
+	}
+}
+} // namespace
+
+void GDMono::push_play_runtime_environment() {
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (!ps) {
+		return;
+	}
+	bool pin = ps->has_setting("dotnet/runtime/pin_play_to_export") && (bool)GLOBAL_GET("dotnet/runtime/pin_play_to_export");
+	bool satori = ps->has_setting("dotnet/runtime/satori_play_from_editor") && (bool)GLOBAL_GET("dotnet/runtime/satori_play_from_editor");
+	if (!pin && !satori) {
+		return;
+	}
+
+	OS *os = OS::get_singleton();
+	PlayRuntimeEnvBackup &b = play_runtime_env_backup;
+	backup_env("DOTNET_ROOT", b.had_root, b.root);
+	backup_env("DOTNET_ROOT_X64", b.had_root_x64, b.root_x64);
+	backup_env("DOTNET_ROLL_FORWARD", b.had_roll_forward, b.roll_forward);
+	b.active = true;
+
+	if (satori) {
+		// Staged by the fork's dev.ps1 build: a private dotnet root whose shared framework
+		// carries the Satori coreclr/clrjit/CoreLib overlay.
+		String root = GodotSharpDirs::get_data_editor_tools_dir().path_join("SatoriPlay").path_join("win-x64").path_join("dotnet");
+		if (DirAccess::exists(root)) {
+			os->set_environment("DOTNET_ROOT", root);
+			os->set_environment("DOTNET_ROOT_X64", root);
+			print_verbose(".NET: play-from-editor will use the Satori runtime root at " + root);
+		} else {
+			WARN_PRINT("dotnet/runtime/satori_play_from_editor is enabled but no staged Satori play runtime exists at '" + root + "'. Run the fork's dev.ps1 build. Playing on the stock runtime.");
+		}
+	}
+	if (pin || satori) {
+		// Stay on the same major as the framework in GodotPlugins.runtimeconfig.json (net8.0)
+		// instead of rolling forward to whatever newest major is installed, so editor play
+		// runs the runtime the self-contained export bundles.
+		os->set_environment("DOTNET_ROLL_FORWARD", "LatestPatch");
+	}
+}
+
+void GDMono::pop_play_runtime_environment() {
+	PlayRuntimeEnvBackup &b = play_runtime_env_backup;
+	if (!b.active) {
+		return;
+	}
+	restore_env("DOTNET_ROOT", b.had_root, b.root);
+	restore_env("DOTNET_ROOT_X64", b.had_root_x64, b.root_x64);
+	restore_env("DOTNET_ROLL_FORWARD", b.had_roll_forward, b.roll_forward);
+	b = PlayRuntimeEnvBackup();
+}
+#endif // TOOLS_ENABLED
+
 bool GDMono::should_initialize() {
 #ifdef TOOLS_ENABLED
 	// The editor always needs to initialize the .NET module for now.

@@ -148,6 +148,14 @@ public:
 
 	void initialize();
 
+#ifdef TOOLS_ENABLED
+	// Play-from-editor runtime pinning. The played game is a child of the editor binary and
+	// resolves .NET through hostfxr from the inherited environment, so these set (and then
+	// restore) DOTNET_* variables around the child launch. See the fork's SATORI.md.
+	static void push_play_runtime_environment();
+	static void pop_play_runtime_environment();
+#endif
+
 	GDMono();
 	~GDMono();
 };

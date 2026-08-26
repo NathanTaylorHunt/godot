@@ -119,6 +119,9 @@ void CSharpLanguage::init() {
 #ifdef TOOLS_ENABLED
 	GLOBAL_DEF("dotnet/project/solution_directory", "");
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "dotnet/project/assembly_reload_attempts", PROPERTY_HINT_RANGE, "1,16,1,or_greater"), 3);
+	// Play-from-editor runtime selection; see GDMono::push_play_runtime_environment.
+	GLOBAL_DEF("dotnet/runtime/pin_play_to_export", true);
+	GLOBAL_DEF("dotnet/runtime/satori_play_from_editor", false);
 #endif
 
 #ifdef TOOLS_ENABLED
@@ -1777,7 +1780,13 @@ void CSharpInstance::mono_object_disposed(GCHandleIntPtr p_gchandle_to_free) {
 
 #ifdef DEBUG_ENABLED
 	CRASH_COND(base_ref_counted);
-	CRASH_COND(gchandle.is_released());
+	// The handle can already be released by another thread (finalizer or a background
+	// resource load) between the caller's check and this point; the thread-safe releaser
+	// below double-checks under its mutex and tolerates that, so this is a warning, not a
+	// crash. See godotengine/godot#83762.
+	if (gchandle.is_released()) {
+		WARN_PRINT_ONCE("C# script instance disposed after its GC handle was already released (godot#83762 race); ignoring.");
+	}
 #endif // DEBUG_ENABLED
 	CSharpLanguage::get_singleton()->release_script_gchandle_thread_safe(p_gchandle_to_free, gchandle);
 }
@@ -1785,7 +1794,10 @@ void CSharpInstance::mono_object_disposed(GCHandleIntPtr p_gchandle_to_free) {
 void CSharpInstance::mono_object_disposed_baseref(GCHandleIntPtr p_gchandle_to_free, bool p_is_finalizer, bool &r_delete_owner, bool &r_remove_script_instance) {
 #ifdef DEBUG_ENABLED
 	CRASH_COND(!base_ref_counted);
-	CRASH_COND(gchandle.is_released());
+	// Same race as in mono_object_disposed; see godotengine/godot#83762.
+	if (gchandle.is_released()) {
+		WARN_PRINT_ONCE("C# RefCounted script instance disposed after its GC handle was already released (godot#83762 race); ignoring.");
+	}
 #endif // DEBUG_ENABLED
 
 	// Must make sure event signals are not left dangling

@@ -130,6 +130,40 @@ function Stage-SatoriRuntime {
     Write-Host "[OK] Staged Satori runtime: $destination"
 }
 
+function Stage-SatoriPlayRuntime {
+    # A private dotnet root for play-from-editor (see GDMono::push_play_runtime_environment):
+    # the newest installed 8.0.x shared framework and hostfxr, with the Satori overlay applied
+    # to the framework directory, so the editor's play child can run Satori while the editor
+    # itself keeps the stock runtime. Exports are unaffected; they use the Satori\ overlay.
+    $dotnetRoot = Join-Path $env:ProgramFiles 'dotnet'
+    $frameworks = Get-ChildItem -LiteralPath (Join-Path $dotnetRoot 'shared\Microsoft.NETCore.App') -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like '8.0.*' } | Sort-Object { [version]$_.Name } -Descending
+    if (-not $frameworks) {
+        Write-Host "[WARN] No installed Microsoft.NETCore.App 8.0.x under '$dotnetRoot'; skipping Satori play runtime staging."
+        return
+    }
+    $framework = $frameworks[0]
+    $fxrs = Get-ChildItem -LiteralPath (Join-Path $dotnetRoot 'hostxr') -Directory | Sort-Object { [version]$_.Name } -Descending
+    $fxr = $fxrs[0]
+
+    $destination = Join-Path $EngineRoot 'bin\GodotSharp\Tools\SatoriPlay\win-x64\dotnet'
+    if (Test-Path -LiteralPath $destination) {
+        Remove-Item -LiteralPath $destination -Recurse -Force
+    }
+    $fxrDestination = Join-Path $destination ("hostxr\" + $fxr.Name)
+    $fwDestination = Join-Path $destination ("shared\Microsoft.NETCore.App\" + $framework.Name)
+    New-Item -ItemType Directory -Path $fxrDestination -Force | Out-Null
+    Copy-Item -Path (Join-Path $fxr.FullName '*') -Destination $fxrDestination -Recurse -Force
+    Copy-Item -Path $framework.FullName -Destination $fwDestination -Recurse -Force
+
+    foreach ($fileName in 'coreclr.dll', 'clrjit.dll', 'System.Private.CoreLib.dll') {
+        Copy-Item -LiteralPath (Join-Path $SatoriRuntimeSource $fileName) -Destination (Join-Path $fwDestination $fileName) -Force
+    }
+
+    Set-Content -LiteralPath (Join-Path $destination 'version.txt') -Value "$SatoriVersion over Microsoft.NETCore.App $($framework.Name)" -NoNewline
+    Write-Host "[OK] Staged Satori play runtime: $destination (framework $($framework.Name), hostfxr $($fxr.Name))"
+}
+
 function Invoke-Build {
     Invoke-Doctor
 
@@ -160,6 +194,7 @@ function Invoke-Build {
     }
 
     Stage-SatoriRuntime
+    Stage-SatoriPlayRuntime
 }
 
 function Invoke-TemplateBuild {

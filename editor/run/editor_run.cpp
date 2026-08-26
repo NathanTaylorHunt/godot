@@ -40,6 +40,11 @@
 #include "main/main.h"
 #include "servers/display/display_server.h"
 
+#include "modules/modules_enabled.gen.h" // For mono.
+#ifdef MODULE_MONO_ENABLED
+#include "modules/mono/mono_gd/gd_mono.h"
+#endif
+
 EditorRun::Status EditorRun::get_status() const {
 	return status;
 }
@@ -160,6 +165,9 @@ Error EditorRun::run(const String &p_scene, const String &p_write_movie, const V
 
 	String exec = OS::get_singleton()->get_executable_path();
 	int instance_count = RunInstancesDialog::get_singleton()->get_instance_count();
+#ifdef MODULE_MONO_ENABLED
+	GDMono::push_play_runtime_environment();
+#endif
 	for (int i = 0; i < instance_count; i++) {
 		List<String> instance_args(args);
 		RunInstancesDialog::get_singleton()->get_argument_list_for_instance(i, instance_args);
@@ -180,11 +188,19 @@ Error EditorRun::run(const String &p_scene, const String &p_write_movie, const V
 
 		ProcessID pid = 0;
 		Error err = OS::get_singleton()->create_instance(instance_args, &pid);
-		ERR_FAIL_COND_V(err, err);
+		if (err != OK) {
+#ifdef MODULE_MONO_ENABLED
+			GDMono::pop_play_runtime_environment();
+#endif
+			ERR_FAIL_V(err);
+		}
 		if (pid != 0) {
 			pids.push_back(pid);
 		}
 	}
+#ifdef MODULE_MONO_ENABLED
+	GDMono::pop_play_runtime_environment();
+#endif
 
 	status = STATUS_PLAY;
 	if (!p_scene.is_empty()) {
