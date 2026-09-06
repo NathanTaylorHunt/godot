@@ -1995,6 +1995,11 @@ void EditorNode::gather_resources(const Variant &p_variant, List<Ref<Resource>> 
 	}
 }
 
+void EditorNode::_emit_resource_counter_changed() {
+	resource_counter_update_queued = false;
+	emit_signal(SNAME("resource_counter_changed"));
+}
+
 void EditorNode::update_resource_count(Node *p_node, bool p_remove) {
 	if (!get_edited_scene()) {
 		return;
@@ -2015,7 +2020,12 @@ void EditorNode::update_resource_count(Node *p_node, bool p_remove) {
 		}
 	}
 
-	emit_signal(SNAME("resource_counter_changed"));
+	// A scene-tree refresh visits many nodes. Refresh resource pickers once
+	// after the burst, when all resource counts have been updated.
+	if (!resource_counter_update_queued) {
+		resource_counter_update_queued = true;
+		callable_mp(this, &EditorNode::_emit_resource_counter_changed).call_deferred();
+	}
 }
 
 int EditorNode::get_resource_count(Ref<Resource> p_res) {

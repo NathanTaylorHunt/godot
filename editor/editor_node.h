@@ -462,6 +462,8 @@ private:
 	Ref<Resource> saving_resource;
 	HashSet<Ref<Resource>> saving_resources_in_path;
 	HashMap<Ref<Resource>, List<Node *>> resource_count; // Keeps track of linked Resources from a Scene.
+	bool resource_counter_update_queued = false;
+	void _emit_resource_counter_changed();
 
 	uint64_t update_spinner_step_msec = 0;
 	uint64_t update_spinner_step_frame = 0;
