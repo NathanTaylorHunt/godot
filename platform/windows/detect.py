@@ -465,10 +465,11 @@ def configure_msvc(env: "SConsEnvironment"):
         "ntdll",
         "hid",
         "mincore",
+        # The crash minidump layer needs these in every target, release
+        # templates included; the debug backtrace uses them too.
+        "psapi",
+        "dbghelp",
     ]
-
-    if env.debug_features:
-        LIBS += ["psapi", "dbghelp"]
 
     if env["accesskit"]:
         if os.path.exists(env["accesskit_sdk_path"]):
@@ -556,9 +557,6 @@ def configure_msvc(env: "SConsEnvironment"):
                     "Alternatively, disable this driver by compiling with `angle=no` explicitly."
                 )
                 env["angle"] = False
-
-    if env["target"] in ["editor", "template_debug"]:
-        LIBS += ["psapi", "dbghelp"]
 
     if env["use_llvm"]:
         LIBS += [f"clang_rt.builtins-{env['arch']}"]
@@ -929,8 +927,7 @@ def configure_mingw(env: "SConsEnvironment"):
             )
             env["accesskit"] = False
 
-    if env.debug_features:
-        env.Append(LIBS=["psapi", "dbghelp"])
+    env.Append(LIBS=["psapi", "dbghelp"])
 
     if env["vulkan"]:
         env.Append(CPPDEFINES=["VULKAN_ENABLED", "RD_ENABLED"])

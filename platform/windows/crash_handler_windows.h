@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "core/string/ustring.h"
+
 #include <windows.h>
 
 // Crash handler exception only enabled with MSVC
@@ -41,6 +43,13 @@ extern DWORD CrashHandlerException(EXCEPTION_POINTERS *ep);
 #endif
 
 #endif
+
+// The process-wide minidump layer, compiled into every Windows target. Unlike
+// the backtrace above it is not gated on DEBUG_ENABLED and does not depend on
+// the __try around main(), so it also covers release templates and crashes on
+// threads other than the main one. See crash_handler_windows_minidump.cpp.
+void crash_handler_windows_install_unhandled_filter();
+void crash_handler_windows_set_dump_directory(const String &p_directory);
 
 class CrashHandler {
 	bool disabled;

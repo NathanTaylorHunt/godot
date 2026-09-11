@@ -38,6 +38,10 @@ if env.msvc:
 else:
     common_win += ["crash_handler_windows_signal.cpp"]
 
+# The minidump layer is shared by both handlers and is built for every target,
+# release templates included.
+common_win += ["crash_handler_windows_minidump.cpp"]
+
 common_win_wrap = [
     "console_wrapper_windows.cpp",
 ]

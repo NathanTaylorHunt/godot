@@ -280,4 +280,5 @@ void CrashHandler::disable() {
 }
 
 void CrashHandler::initialize() {
+	crash_handler_windows_install_unhandled_filter();
 }

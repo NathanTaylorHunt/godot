@@ -236,6 +236,10 @@ public:
 	virtual String get_system_dir(SystemDir p_dir, bool p_shared_storage = true) const override;
 	virtual String get_user_data_dir(const String &p_user_dir) const override;
 
+	// Also hands the crash handler the directory its minidumps go in: this is
+	// the first point at which user:// is both known and guaranteed to exist.
+	virtual void ensure_user_data_dir() override;
+
 	virtual String expand_path(const String &p_path) const override;
 
 	virtual String get_unique_id() const override;

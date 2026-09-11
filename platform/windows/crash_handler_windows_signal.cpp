@@ -323,6 +323,8 @@ void CrashHandler::disable() {
 }
 
 void CrashHandler::initialize() {
+	crash_handler_windows_install_unhandled_filter();
+
 #if defined(CRASH_HANDLER_EXCEPTION)
 	signal(SIGSEGV, CrashHandlerException);
 	signal(SIGFPE, CrashHandlerException);

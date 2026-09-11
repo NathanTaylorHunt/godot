@@ -248,7 +248,7 @@ public:
 	bool is_layered_allowed() const { return _allow_layered; }
 	bool is_hidpi_allowed() const { return _allow_hidpi; }
 
-	void ensure_user_data_dir();
+	virtual void ensure_user_data_dir();
 
 	// NOTE: MainLoop is forward-declared in OS and should be included to use this.
 	virtual MainLoop *get_main_loop() const = 0;
