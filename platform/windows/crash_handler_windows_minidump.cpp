@@ -61,6 +61,7 @@ constexpr int DUMPS_KEPT = 3;
 constexpr int RETENTION_SCAN_MAX = 64;
 WCHAR retention_names[RETENTION_SCAN_MAX][MAX_PATH];
 WCHAR dump_path[MAX_PATH];
+WCHAR summary_path[MAX_PATH];
 WCHAR retention_path[MAX_PATH];
 
 // Thread stacks, module list, unloaded modules and handles, plus the address
@@ -139,7 +140,37 @@ void prune_old_dumps(int p_keep) {
 			continue;
 		}
 		DeleteFileW(retention_path);
+		if (_snwprintf_s(retention_path, MAX_PATH, _TRUNCATE, L"%s\\%s.txt", dump_directory, retention_names[i]) >= 0) {
+			DeleteFileW(retention_path);
+		}
 	}
+}
+
+// A few lines anyone can read without a debugger, written before the dump is
+// attempted so that a failed MiniDumpWriteDump still leaves the exception code
+// and the reason it failed.
+void write_summary(const WCHAR *p_path, EXCEPTION_POINTERS *p_exception, DWORD p_dump_error) {
+	HANDLE file = CreateFileW(p_path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+			CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	char text[512];
+	const EXCEPTION_RECORD *record = p_exception ? p_exception->ExceptionRecord : nullptr;
+	int length = _snprintf_s(text, sizeof(text), _TRUNCATE,
+			"process %lu crashed\r\n"
+			"thread %lu\r\n"
+			"exception 0x%08lX at 0x%p\r\n"
+			"minidump %s\r\n",
+			GetCurrentProcessId(), GetCurrentThreadId(),
+			record ? record->ExceptionCode : 0,
+			record ? record->ExceptionAddress : nullptr,
+			p_dump_error == 0 ? "written" : "failed");
+	if (length > 0) {
+		DWORD unused = 0;
+		WriteFile(file, text, (DWORD)length, &unused, nullptr);
+	}
+	CloseHandle(file);
 }
 
 bool write_minidump(EXCEPTION_POINTERS *p_exception) {
@@ -154,6 +185,12 @@ bool write_minidump(EXCEPTION_POINTERS *p_exception) {
 				dump_directory, now.wYear, now.wMonth, now.wDay,
 				now.wHour, now.wMinute, now.wSecond, GetCurrentProcessId()) < 0) {
 		return false;
+	}
+
+	if (_snwprintf_s(summary_path, MAX_PATH, _TRUNCATE, L"%s.txt", dump_path) < 0) {
+		summary_path[0] = 0;
+	} else {
+		write_summary(summary_path, p_exception, ERROR_IO_PENDING);
 	}
 
 	HANDLE file = CreateFileW(dump_path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
@@ -172,8 +209,15 @@ bool write_minidump(EXCEPTION_POINTERS *p_exception) {
 	CloseHandle(file);
 
 	if (!written) {
+		DWORD error = GetLastError();
 		DeleteFileW(dump_path);
+		if (summary_path[0] != 0) {
+			write_summary(summary_path, p_exception, error == 0 ? ERROR_INVALID_FUNCTION : error);
+		}
 		return false;
+	}
+	if (summary_path[0] != 0) {
+		write_summary(summary_path, p_exception, 0);
 	}
 
 	// Keeping the dump just written, so the fourth crash evicts the first.
@@ -205,13 +249,16 @@ LONG WINAPI unhandled_exception_filter(EXCEPTION_POINTERS *p_exception) {
 
 } // namespace
 
+// Called once at OS::initialize() and again once the main loop starts. The
+// second call matters: the .NET runtime installs its own top-level filter while
+// it loads, which would otherwise displace this one for the rest of the
+// process. Re-arming puts this handler back in front and keeps the runtime's as
+// the one it defers to.
 void crash_handler_windows_install_unhandled_filter() {
-	static bool installed = false;
-	if (installed) {
-		return;
+	LPTOP_LEVEL_EXCEPTION_FILTER prior = SetUnhandledExceptionFilter(&unhandled_exception_filter);
+	if (prior != &unhandled_exception_filter) {
+		previous_filter = prior;
 	}
-	installed = true;
-	previous_filter = SetUnhandledExceptionFilter(&unhandled_exception_filter);
 }
 
 void crash_handler_windows_set_dump_directory(const String &p_directory) {

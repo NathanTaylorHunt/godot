@@ -2349,6 +2349,10 @@ void OS_Windows::run() {
 		return;
 	}
 
+	// Re-arm the crash minidump filter now that every module, the .NET runtime
+	// included, has finished loading and installing top-level handlers of its own.
+	crash_handler_windows_install_unhandled_filter();
+
 	main_loop->initialize();
 
 	while (true) {
