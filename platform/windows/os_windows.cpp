@@ -2516,7 +2516,7 @@ String OS_Windows::get_user_data_dir(const String &p_user_dir) const {
 
 void OS_Windows::ensure_user_data_dir() {
 	OS::ensure_user_data_dir();
-	crash_handler_windows_set_dump_directory(get_user_data_dir().path_join("logs/diagnostics"));
+	crash_handler_windows_set_dump_directory(OS::get_user_data_dir().path_join("logs/diagnostics"));
 }
 
 String OS_Windows::expand_path(const String &p_path) const {
