@@ -202,8 +202,12 @@ function Invoke-TemplateBuild {
 
     Push-Location $EngineRoot
     try {
+        # debug_symbols=yes makes MSVC emit a PDB beside each template (/Zi /FS, /DEBUG:FULL).
+        # /OPT:REF is still applied at optimize=speed, so codegen is unchanged. The PDB never
+        # ships: the Dorifto export archives it under export\symbols\<template-sha>\ and the
+        # release manifest records the template and PDB hashes so a dump can be symbolized.
         foreach ($target in 'template_debug', 'template_release') {
-            & scons platform=windows target=$target arch=x86_64 module_mono_enabled=yes
+            & scons platform=windows target=$target arch=x86_64 module_mono_enabled=yes debug_symbols=yes
             if ($LASTEXITCODE -ne 0) {
                 throw "Godot $target build failed with exit code $LASTEXITCODE."
             }
