@@ -56,10 +56,15 @@
 namespace {
 
 // Dispatching the update's job graph through the worker thread pool costs a few hundred
-// microseconds of wake-ups and waits regardless of how much simulation work exists. With only a
-// handful of active bodies (e.g. manual `space_step` rollback replays over mostly-sleeping
-// scenes) executing the update inline on the calling thread is strictly cheaper.
-constexpr JPH::uint SPACE_INLINE_STEP_MAX_ACTIVE_BODIES = 16;
+// microseconds of wake-ups and waits regardless of how much simulation work exists, and — more
+// importantly — it is the only multi-threaded stage in an otherwise single-threaded manual
+// `space_step` pipeline: with the worker-pool job system under load, direct-state reads issued
+// immediately after the update intermittently observed the previous step's state (measured as
+// freeze-then-double-step frames baked into gameplay replay captures, up to ~14% of ticks in
+// saturated sessions). Rigid-only scenes therefore always step inline on the calling thread,
+// which makes the step deterministic by construction; replay capture correctness outweighs the
+// parallel solve at the body counts this game runs. Soft bodies fan out significant per-body
+// work and keep the threaded job system.
 
 constexpr double SPACE_DEFAULT_CONTACT_RECYCLE_RADIUS = 0.01;
 constexpr double SPACE_DEFAULT_CONTACT_MAX_SEPARATION = 0.05;
@@ -201,11 +206,11 @@ JoltSpace3D::~JoltSpace3D() {
 }
 
 JPH::JobSystem *JoltSpace3D::_step_job_system() {
-	const JPH::uint active_rigid_bodies = physics_system->GetNumActiveBodies(JPH::EBodyType::RigidBody);
 	const JPH::uint active_soft_bodies = physics_system->GetNumActiveBodies(JPH::EBodyType::SoftBody);
 
-	// Soft bodies fan out significant per-body work, so only bypass the threaded job system for purely rigid scenes.
-	if (active_soft_bodies > 0 || active_rigid_bodies > SPACE_INLINE_STEP_MAX_ACTIVE_BODIES) {
+	// See the rationale at the top of this file: rigid-only scenes always step inline so the
+	// whole step is single-threaded and post-step state reads are deterministic.
+	if (active_soft_bodies > 0) {
 		return job_system;
 	}
 
