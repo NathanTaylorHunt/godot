@@ -79,8 +79,9 @@ public:
 	// infinite wait and reports nothing.
 	uint64_t stall_threshold_usec() const { return stall_threshold; }
 
-	// Logs the presentation fingerprint. Only the first call logs: a swap chain is recreated on
-	// every resize, and one line per launch is the point.
+	// Logs the presentation fingerprint: once at startup, and again if a later swap chain is
+	// granted a different present mode, which is how the mode a run actually uses gets into the
+	// log. A resize that changes nothing logs nothing.
 	void log_presentation(const Presentation &p_presentation);
 
 	// Reports a wait that has not come back. p_report_index counts the expiries within one wait,

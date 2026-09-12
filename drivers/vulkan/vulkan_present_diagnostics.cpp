@@ -98,10 +98,16 @@ const char *VulkanPresentDiagnostics::wait_name(WaitKind p_wait) {
 }
 
 void VulkanPresentDiagnostics::log_presentation(const Presentation &p_presentation) {
-	present_mode_name = p_presentation.present_mode;
-	if (presentation_logged) {
+	// A swap chain is recreated on every resize, but the mode it is granted changes only when the
+	// application asks for a different one -- which it does, after boot, without saying so
+	// anywhere. One line per configuration therefore says more than one line per launch, and still
+	// costs one line on a run that never changes its mind.
+	if (presentation_logged && present_mode_name == p_presentation.present_mode) {
 		return;
 	}
+
+	const bool first = !presentation_logged;
+	present_mode_name = p_presentation.present_mode;
 	presentation_logged = true;
 
 	String driver = p_presentation.driver_name;
@@ -124,7 +130,8 @@ void VulkanPresentDiagnostics::log_presentation(const Presentation &p_presentati
 	const uint32_t api_patch = p_presentation.api_version & 0xFFF;
 
 	print_line(vformat(
-			"Presentation: present mode %s (v-sync %s), %d swap chain images, %s; device %s, driver %s (raw %d), Vulkan %d.%d.%d; loader layers: %s; interceptors: %s.",
+			"%s: present mode %s (v-sync %s), %d swap chain images, %s; device %s, driver %s (raw %d), Vulkan %d.%d.%d; loader layers: %s; interceptors: %s.",
+			String(first ? "Presentation" : "Presentation changed"),
 			p_presentation.present_mode,
 			p_presentation.vsync_mode,
 			p_presentation.image_count,
