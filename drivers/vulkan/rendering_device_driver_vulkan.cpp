@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/os/os.h"
+#include "core/os/thread.h"
 #include "core/templates/fixed_vector.h"
 #include "drivers/vulkan/vulkan_hooks.h"
 
@@ -758,6 +759,11 @@ void RenderingDeviceDriverVulkan::_get_device_properties() {
 
 		functions.GetPhysicalDeviceProperties2(physical_device, &device_props);
 		physical_device_properties = device_props.properties;
+
+		// Kept for the presentation fingerprint: the vendor's own version string is what a bug
+		// report and a driver release note agree on, where the packed driverVersion is not.
+		physical_device_driver_name = String::utf8(driver_props.driverName);
+		physical_device_driver_info = String::utf8(driver_props.driverInfo);
 
 		_check_driver_workarounds(physical_device_properties, &driver_props);
 
@@ -3042,11 +3048,46 @@ RDD::FenceID RenderingDeviceDriverVulkan::fence_create() {
 	return FenceID(fence);
 }
 
+// Waits for the fence in threshold-sized slices instead of in one infinite wait, reporting every
+// expiry and then waiting again. The wait is the same wait and nothing is cancelled; the only new
+// behaviour is that a frame that is not coming back says so while it is still stuck.
+VkResult RenderingDeviceDriverVulkan::_fence_wait_reported(Fence *p_fence) {
+	_stall_for_test(present_diagnostics.take_forced_stall_usec());
+
+	const uint64_t threshold_usec = present_diagnostics.stall_threshold_usec();
+	if (threshold_usec == 0) {
+		return vkWaitForFences(vk_device, 1, &p_fence->vk_fence, VK_TRUE, UINT64_MAX);
+	}
+
+	uint64_t elapsed_usec = 0;
+	uint32_t expiries = 0;
+	while (true) {
+		VkResult err = vkWaitForFences(vk_device, 1, &p_fence->vk_fence, VK_TRUE, threshold_usec * 1000);
+		if (err != VK_TIMEOUT) {
+			if (expiries > 0) {
+				present_diagnostics.report_recovered(VulkanPresentDiagnostics::WAIT_FENCE, elapsed_usec);
+			}
+			return err;
+		}
+
+		elapsed_usec += threshold_usec;
+		expiries++;
+		present_diagnostics.report_stall(
+				VulkanPresentDiagnostics::WAIT_FENCE,
+				elapsed_usec,
+				expiries,
+				vformat("frame %d, thread %d, fence from queue 0x%x",
+						Engine::get_singleton()->get_frames_drawn(),
+						(uint64_t)Thread::get_caller_id(),
+						(uint64_t)p_fence->queue_signaled_from));
+	}
+}
+
 Error RenderingDeviceDriverVulkan::fence_wait(FenceID p_fence) {
 	Fence *fence = (Fence *)(p_fence.id);
 	VkResult fence_status = vkGetFenceStatus(vk_device, fence->vk_fence);
 	if (fence_status == VK_NOT_READY) {
-		VkResult err = vkWaitForFences(vk_device, 1, &fence->vk_fence, VK_TRUE, UINT64_MAX);
+		VkResult err = _fence_wait_reported(fence);
 		ERR_FAIL_COND_V_MSG(err != VK_SUCCESS, FAILED, vformat("Couldn't wait for Vulkan fence (VkResult error %d).", err));
 	}
 
@@ -3663,6 +3704,36 @@ RenderingDeviceDriver::SwapChainID RenderingDeviceDriverVulkan::swap_chain_creat
 	return SwapChainID(swap_chain);
 }
 
+// The present mode the swap chain was actually granted. The engine has only ever logged the v-sync
+// mode that was asked for, which is two mappings away from this one and can silently fall back.
+static String _present_mode_name(VkPresentModeKHR p_present_mode) {
+	switch (p_present_mode) {
+		case VK_PRESENT_MODE_IMMEDIATE_KHR:
+			return "IMMEDIATE";
+		case VK_PRESENT_MODE_MAILBOX_KHR:
+			return "MAILBOX";
+		case VK_PRESENT_MODE_FIFO_KHR:
+			return "FIFO";
+		case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+			return "FIFO_RELAXED";
+		default:
+			return vformat("VkPresentModeKHR %d", (int)p_present_mode);
+	}
+}
+
+static String _swap_chain_format_name(VkFormat p_format) {
+	switch (p_format) {
+		case VK_FORMAT_B8G8R8A8_UNORM:
+			return "B8G8R8A8_UNORM";
+		case VK_FORMAT_R8G8B8A8_UNORM:
+			return "R8G8B8A8_UNORM";
+		case VK_FORMAT_R16G16B16A16_SFLOAT:
+			return "R16G16B16A16_SFLOAT";
+		default:
+			return vformat("VkFormat %d", (int)p_format);
+	}
+}
+
 Error RenderingDeviceDriverVulkan::swap_chain_resize(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, uint32_t p_desired_framebuffer_count) {
 	DEV_ASSERT(p_cmd_queue.id != 0);
 	DEV_ASSERT(p_swap_chain.id != 0);
@@ -3977,7 +4048,91 @@ Error RenderingDeviceDriverVulkan::swap_chain_resize(CommandQueueID p_cmd_queue,
 	// Once everything's been created correctly, indicate the surface no longer needs to be resized.
 	context_driver->surface_set_needs_resize(swap_chain->surface, false);
 
+	_log_presentation_fingerprint(swap_chain, present_mode_name, _present_mode_name(present_mode));
+
 	return OK;
+}
+
+void RenderingDeviceDriverVulkan::_log_presentation_fingerprint(const SwapChain *p_swap_chain, const String &p_vsync_mode, const String &p_present_mode) {
+	VulkanPresentDiagnostics::Presentation presentation;
+	presentation.vsync_mode = p_vsync_mode;
+	presentation.present_mode = p_present_mode;
+	presentation.image_count = p_swap_chain->images.size();
+	presentation.format = vformat("%s in color space %d", _swap_chain_format_name(p_swap_chain->format), (int)p_swap_chain->color_space);
+	presentation.device_name = String::utf8(physical_device_properties.deviceName);
+	presentation.driver_name = physical_device_driver_name;
+	presentation.driver_info = physical_device_driver_info;
+	presentation.vendor_id = physical_device_properties.vendorID;
+	presentation.driver_version = physical_device_properties.driverVersion;
+	presentation.api_version = physical_device_properties.apiVersion;
+	presentation.loader_layers = context_driver->get_loader_layer_names();
+	present_diagnostics.log_presentation(presentation);
+}
+
+// Acquires the next swap chain image in threshold-sized slices, for the same reason the fence wait
+// is bounded: an acquire that never returns is the other way this process can stop forever.
+VkResult RenderingDeviceDriverVulkan::_swap_chain_acquire_reported(SwapChain *p_swap_chain, VkSemaphore p_semaphore) {
+	const uint64_t threshold_usec = present_diagnostics.stall_threshold_usec();
+	if (threshold_usec == 0) {
+		return device_functions.AcquireNextImageKHR(vk_device, p_swap_chain->vk_swapchain, UINT64_MAX, p_semaphore, VK_NULL_HANDLE, &p_swap_chain->image_index);
+	}
+
+	uint64_t elapsed_usec = 0;
+	uint32_t expiries = 0;
+	while (true) {
+		// A timed-out acquire leaves the semaphore untouched and no image acquired, so the retry
+		// is the same call with the same semaphore.
+		VkResult err = device_functions.AcquireNextImageKHR(vk_device, p_swap_chain->vk_swapchain, threshold_usec * 1000, p_semaphore, VK_NULL_HANDLE, &p_swap_chain->image_index);
+		if (err != VK_TIMEOUT) {
+			if (expiries > 0) {
+				present_diagnostics.report_recovered(VulkanPresentDiagnostics::WAIT_SWAP_CHAIN_ACQUIRE, elapsed_usec);
+			}
+			return err;
+		}
+
+		elapsed_usec += threshold_usec;
+		expiries++;
+		present_diagnostics.report_stall(
+				VulkanPresentDiagnostics::WAIT_SWAP_CHAIN_ACQUIRE,
+				elapsed_usec,
+				expiries,
+				vformat("frame %d, thread %d, %d swap chain images",
+						Engine::get_singleton()->get_frames_drawn(),
+						(uint64_t)Thread::get_caller_id(),
+						p_swap_chain->images.size()));
+	}
+}
+
+void RenderingDeviceDriverVulkan::force_gpu_stall(uint32_t p_msec) {
+	present_diagnostics.request_forced_stall(p_msec);
+}
+
+// Wedges the waiting thread for real, in threshold-sized slices that report exactly as a driver
+// stall does. Sleeping is the point: a forced stall that did not stop the thread would prove
+// nothing about what a real one does to the window, the watcher or the log.
+void RenderingDeviceDriverVulkan::_stall_for_test(uint64_t p_usec) {
+	if (p_usec == 0) {
+		return;
+	}
+
+	const uint64_t threshold_usec = MAX((uint64_t)1, present_diagnostics.stall_threshold_usec());
+	uint64_t elapsed_usec = 0;
+	uint32_t expiries = 0;
+	while (elapsed_usec < p_usec) {
+		const uint64_t slice_usec = MIN(threshold_usec, p_usec - elapsed_usec);
+		OS::get_singleton()->delay_usec(slice_usec);
+		elapsed_usec += slice_usec;
+		expiries++;
+		present_diagnostics.report_stall(
+				VulkanPresentDiagnostics::WAIT_FENCE,
+				elapsed_usec,
+				expiries,
+				vformat("frame %d, thread %d, forced by the QA stall test",
+						Engine::get_singleton()->get_frames_drawn(),
+						(uint64_t)Thread::get_caller_id()));
+	}
+
+	present_diagnostics.report_recovered(VulkanPresentDiagnostics::WAIT_FENCE, elapsed_usec);
 }
 
 RDD::FramebufferID RenderingDeviceDriverVulkan::swap_chain_acquire_framebuffer(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, bool &r_resize_required) {
@@ -4018,7 +4173,7 @@ RDD::FramebufferID RenderingDeviceDriverVulkan::swap_chain_acquire_framebuffer(C
 	swap_chain->command_queues_acquired.push_back(command_queue);
 	swap_chain->command_queues_acquired_semaphores.push_back(semaphore_index);
 
-	err = device_functions.AcquireNextImageKHR(vk_device, swap_chain->vk_swapchain, UINT64_MAX, semaphore, VK_NULL_HANDLE, &swap_chain->image_index);
+	err = _swap_chain_acquire_reported(swap_chain, semaphore);
 	if (err == VK_ERROR_OUT_OF_DATE_KHR) {
 		// Out of date leaves the semaphore in a signaled state that will never finish, so it's necessary to recreate it.
 		bool semaphore_recreated = _recreate_image_semaphore(command_queue, semaphore_index, true);
@@ -7472,6 +7627,7 @@ RenderingDeviceDriverVulkan::RenderingDeviceDriverVulkan(RenderingContextDriverV
 
 	context_driver = p_context_driver;
 	max_descriptor_sets_per_pool = GLOBAL_GET("rendering/rendering_device/vulkan/max_descriptors_per_pool");
+	present_diagnostics.configure();
 }
 
 RenderingDeviceDriverVulkan::~RenderingDeviceDriverVulkan() {

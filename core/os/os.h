@@ -167,6 +167,12 @@ public:
 	virtual Vector<String> get_video_adapter_driver_info() const = 0;
 	virtual bool get_user_prefers_integrated_gpu() const { return false; }
 
+	// The file names of the modules loaded into this process. A capture or overlay layer injects
+	// itself into the presentation path whether or not its application is running, so "what was
+	// loaded" is the first question a presentation hang has to answer, and a log that answers it
+	// is worth more than a dump nobody takes. Empty where the platform cannot say.
+	virtual Vector<String> get_loaded_module_names() const { return Vector<String>(); }
+
 	void print_error(const char *p_function, const char *p_file, int p_line, const char *p_code, const char *p_rationale, bool p_editor_notify = false, Logger::ErrorType p_type = Logger::ERR_ERROR, const Vector<Ref<ScriptBacktrace>> &p_script_backtraces = {});
 	void print(const char *p_format, ...) _PRINTF_FORMAT_ATTRIBUTE_2_3;
 	void print_rich(const char *p_format, ...) _PRINTF_FORMAT_ATTRIBUTE_2_3;

@@ -952,6 +952,11 @@ public:
 
 	virtual DriverWorkarounds get_driver_workarounds() const { return DriverWorkarounds(); }
 
+	// Wedges the next GPU wait for this long, so the path a real stall takes -- the report, the
+	// capture request, the recovery line -- can be proved on demand in a shipped build. A driver
+	// that does not bound its waits has nothing to prove and ignores it.
+	virtual void force_gpu_stall(uint32_t p_msec) {}
+
 	/******************/
 
 	virtual ~RenderingDeviceDriver();

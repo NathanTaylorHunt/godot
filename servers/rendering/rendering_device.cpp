@@ -7849,6 +7849,11 @@ String RenderingDevice::get_device_api_name() const {
 	return driver->get_api_name();
 }
 
+void RenderingDevice::force_gpu_stall(int p_msec) {
+	ERR_FAIL_COND(p_msec < 0);
+	driver->force_gpu_stall((uint32_t)p_msec);
+}
+
 bool RenderingDevice::is_composite_alpha_supported() const {
 	return driver->is_composite_alpha_supported(main_queue);
 }
@@ -9228,6 +9233,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_perf_report"), &RenderingDevice::get_perf_report);
 
 	ClassDB::bind_method(D_METHOD("get_driver_and_device_memory_report"), &RenderingDevice::get_driver_and_device_memory_report);
+	ClassDB::bind_method(D_METHOD("force_gpu_stall", "msec"), &RenderingDevice::force_gpu_stall);
 	ClassDB::bind_method(D_METHOD("get_tracked_object_name", "type_index"), &RenderingDevice::get_tracked_object_name);
 	ClassDB::bind_method(D_METHOD("get_tracked_object_type_count"), &RenderingDevice::get_tracked_object_type_count);
 	ClassDB::bind_method(D_METHOD("get_driver_total_memory"), &RenderingDevice::get_driver_total_memory);

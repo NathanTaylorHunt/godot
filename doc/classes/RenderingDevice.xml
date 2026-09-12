@@ -516,6 +516,13 @@
 				Returns [code]true[/code] if the framebuffer specified by the [param framebuffer] RID is valid, [code]false[/code] otherwise.
 			</description>
 		</method>
+		<method name="force_gpu_stall">
+			<return type="void" />
+			<param index="0" name="msec" type="int" />
+			<description>
+				Wedges the next GPU wait for [param msec] milliseconds, so that a build can prove on demand that a stalled frame reports itself instead of freezing silently. The wait resumes afterwards and nothing is cancelled. Intended for diagnostics only.
+			</description>
+		</method>
 		<method name="free_rid">
 			<return type="void" />
 			<param index="0" name="rid" type="RID" />

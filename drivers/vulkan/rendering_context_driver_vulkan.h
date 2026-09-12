@@ -180,6 +180,11 @@ public:
 	bool queue_family_supports_present(VkPhysicalDevice p_physical_device, uint32_t p_queue_family_index, SurfaceID p_surface) const;
 	const Functions &functions_get() const;
 
+	// Every layer the Vulkan loader offers this process. An overlay or capture layer registers
+	// itself as an implicit layer and is injected without the application asking, so a stall
+	// report that does not name them cannot say what was between it and the screen.
+	Vector<String> get_loader_layer_names() const;
+
 	static VkAllocationCallbacks *get_allocation_callbacks(VkObjectType p_type);
 
 #if defined(VK_TRACK_DRIVER_MEMORY) || defined(VK_TRACK_DEVICE_MEMORY)

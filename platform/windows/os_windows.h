@@ -183,6 +183,7 @@ public:
 	virtual String get_version_alias() const override;
 
 	virtual Vector<String> get_video_adapter_driver_info() const override;
+	virtual Vector<String> get_loaded_module_names() const override;
 	virtual bool get_user_prefers_integrated_gpu() const override;
 
 	virtual void initialize_joypads() override {}

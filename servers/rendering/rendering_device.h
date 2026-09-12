@@ -1950,6 +1950,11 @@ public:
 
 	DriverWorkarounds get_driver_workarounds() const;
 
+	// Wedges the next GPU wait for this long, so a QA build can prove on demand that a stalled
+	// frame reports itself, asks the freeze watcher for a capture, and then carries on. It only
+	// arms a value the waiting thread reads; the stall happens on that thread, not this one.
+	void force_gpu_stall(int p_msec);
+
 	uint64_t get_frames_drawn() const { return frames_drawn; }
 
 	bool is_composite_alpha_supported() const;

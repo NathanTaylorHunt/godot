@@ -847,6 +847,29 @@ Vector<String> OS_Windows::get_video_adapter_driver_info() const {
 	return info;
 }
 
+Vector<String> OS_Windows::get_loaded_module_names() const {
+	Vector<String> names;
+	HMODULE modules[1024];
+	DWORD bytes_needed = 0;
+	if (!EnumProcessModules(GetCurrentProcess(), modules, sizeof(modules), &bytes_needed)) {
+		return names;
+	}
+
+	const DWORD count = MIN((DWORD)std_size(modules), (DWORD)(bytes_needed / sizeof(HMODULE)));
+	names.resize(count);
+	String *names_write = names.ptrw();
+	DWORD named = 0;
+	for (DWORD i = 0; i < count; i++) {
+		WCHAR path[MAX_PATH];
+		if (GetModuleFileNameExW(GetCurrentProcess(), modules[i], path, MAX_PATH) == 0) {
+			continue;
+		}
+		names_write[named++] = String::utf16((const char16_t *)path).replace_char('\\', '/').get_file();
+	}
+	names.resize(named);
+	return names;
+}
+
 bool OS_Windows::get_user_prefers_integrated_gpu() const {
 	// On Windows 10, the preferred GPU configured in Windows Settings is
 	// stored in the registry under the key

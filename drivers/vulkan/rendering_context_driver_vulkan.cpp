@@ -501,6 +501,27 @@ Error RenderingContextDriverVulkan::_initialize_instance_extensions() {
 	return OK;
 }
 
+Vector<String> RenderingContextDriverVulkan::get_loader_layer_names() const {
+	Vector<String> names;
+	uint32_t layer_count = 0;
+	if (vkEnumerateInstanceLayerProperties(&layer_count, nullptr) != VK_SUCCESS || layer_count == 0) {
+		return names;
+	}
+
+	TightLocalVector<VkLayerProperties> layer_properties;
+	layer_properties.resize(layer_count);
+	if (vkEnumerateInstanceLayerProperties(&layer_count, layer_properties.ptr()) != VK_SUCCESS) {
+		return names;
+	}
+
+	names.resize(layer_count);
+	String *names_write = names.ptrw();
+	for (uint32_t i = 0; i < layer_count; i++) {
+		names_write[i] = String::utf8(layer_properties[i].layerName);
+	}
+	return names;
+}
+
 Error RenderingContextDriverVulkan::_find_validation_layers(TightLocalVector<const char *> &r_layer_names) const {
 	r_layer_names.clear();
 

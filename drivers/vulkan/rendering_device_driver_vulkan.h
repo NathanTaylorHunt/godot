@@ -35,6 +35,7 @@
 #include "core/templates/rb_map.h"
 #include "drivers/vulkan/rendering_context_driver_vulkan.h"
 #include "drivers/vulkan/rendering_shader_container_vulkan.h"
+#include "drivers/vulkan/vulkan_present_diagnostics.h"
 #include "servers/rendering/rendering_device_driver.h"
 
 #ifdef DEBUG_ENABLED
@@ -58,6 +59,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 
 	struct CommandQueue;
 	struct SwapChain;
+	struct Fence;
 	struct CommandBufferInfo;
 	struct RenderPassInfo;
 	struct Framebuffer;
@@ -189,6 +191,23 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 	PipelineStatistics pipeline_statistics;
 	DriverWorkarounds driver_workarounds;
 
+	// Bounds the two GPU waits below so a stalled frame reports itself, and logs what the
+	// presentation path is made of so a report can be compared with any other machine's.
+	VulkanPresentDiagnostics present_diagnostics;
+	String physical_device_driver_name;
+	String physical_device_driver_info;
+
+	// Waits in threshold-sized slices, reporting each expiry and then waiting again. The wait is
+	// the same wait; only the silence is gone.
+	VkResult _fence_wait_reported(Fence *p_fence);
+	VkResult _swap_chain_acquire_reported(SwapChain *p_swap_chain, VkSemaphore p_semaphore);
+	void _stall_for_test(uint64_t p_usec);
+	void _log_presentation_fingerprint(const SwapChain *p_swap_chain, const String &p_vsync_mode, const String &p_present_mode);
+
+public:
+	virtual void force_gpu_stall(uint32_t p_msec) override final;
+
+private:
 	void _register_requested_device_extension(const CharString &p_extension_name, bool p_required);
 	Error _initialize_device_extensions();
 	void _check_driver_workarounds(const VkPhysicalDeviceProperties &p_device_properties, const VkPhysicalDeviceDriverPropertiesKHR *p_driver_properties);
